@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pi Editor</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', sans-serif; background: #1e1e2e; color: #cdd6f4; display: flex; height: 100vh; }
+
+/* Sidebar */
+#sidebar { width: 240px; background: #181825; border-right: 1px solid #313244; display: flex; flex-direction: column; }
+#sidebar-header { padding: 12px; font-weight: bold; font-size: 14px; border-bottom: 1px solid #313244; color: #89b4fa; }
+#file-tree { flex: 1; overflow-y: auto; padding: 4px 0; }
+.file-item { padding: 6px 12px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.file-item:hover { background: #313244; }
+.file-item.active { background: #45475a; color: #89b4fa; }
+.file-item.dir { color: #f9e2af; }
+.file-item .icon { width: 16px; text-align: center; }
+#path-bar { padding: 6px 12px; font-size: 11px; color: #6c7086; border-top: 1px solid #313244; cursor: pointer; }
+#path-bar:hover { color: #89b4fa; }
+#sidebar-actions { display: flex; gap: 4px; padding: 6px 8px; border-top: 1px solid #313244; }
+#sidebar-actions .btn { flex: 1; font-size: 11px; padding: 4px 6px; }
+.btn-upload { background: #cba6f7; color: #1e1e2e; }
+.btn-upload:hover { background: #b4befe; }
+.btn-download { background: #fab387; color: #1e1e2e; }
+.btn-download:hover { background: #f9e2af; }
+
+/* Drop overlay */
+#drop-overlay { display: none; position: fixed; inset: 0; background: rgba(137,180,250,0.15); border: 3px dashed #89b4fa; z-index: 100; align-items: center; justify-content: center; }
+#drop-overlay.active { display: flex; }
+#drop-overlay span { font-size: 20px; color: #89b4fa; font-weight: bold; background: #1e1e2e; padding: 20px 40px; border-radius: 12px; }
+
+/* Main */
+#main { flex: 1; display: flex; flex-direction: column; }
+
+/* Toolbar */
+#toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #181825; border-bottom: 1px solid #313244; }
+#toolbar .filename { font-size: 13px; color: #a6adc8; flex: 1; }
+#toolbar .filename.modified::after { content: " *"; color: #f38ba8; }
+.btn { padding: 5px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.btn-save { background: #a6e3a1; color: #1e1e2e; }
+.btn-run { background: #89b4fa; color: #1e1e2e; }
+.btn-save:hover { background: #94e2d5; }
+.btn-run:hover { background: #74c7ec; }
+
+/* Editor */
+#editor-wrap { flex: 1; overflow: hidden; }
+.CodeMirror { height: 100%; font-size: 14px; line-height: 1.5; }
+
+/* Terminal */
+#terminal { height: 200px; background: #11111b; border-top: 1px solid #313244; display: flex; flex-direction: column; }
+#terminal-header { padding: 6px 12px; font-size: 12px; font-weight: bold; color: #a6adc8; border-bottom: 1px solid #313244; display: flex; justify-content: space-between; }
+#terminal-output { flex: 1; overflow-y: auto; padding: 8px 12px; font-family: 'Fira Code', monospace; font-size: 12px; white-space: pre-wrap; }
+#terminal-input-wrap { display: flex; border-top: 1px solid #313244; }
+#terminal-input-wrap span { padding: 6px 8px; color: #a6e3a1; font-family: monospace; }
+#terminal-input { flex: 1; background: transparent; border: none; color: #cdd6f4; font-family: 'Fira Code', monospace; font-size: 12px; padding: 6px; outline: none; }
+.out-stdout { color: #cdd6f4; }
+.out-stderr { color: #f38ba8; }
+.out-cmd { color: #a6e3a1; }
+.out-info { color: #89b4fa; }
+
+/* Resize handle */
+#resize-handle { height: 4px; background: #313244; cursor: row-resize; }
+#resize-handle:hover { background: #89b4fa; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div id="sidebar-header">Pi Editor</div>
+  <div id="file-tree"></div>
+  <div id="sidebar-actions">
+    <button class="btn btn-upload" onclick="document.getElementById('file-input').click()">Upload</button>
+    <button class="btn btn-download" onclick="downloadCurrent()">Download</button>
+  </div>
+  <input type="file" id="file-input" multiple style="display:none" onchange="uploadFiles(this.files)">
+  <div id="path-bar" onclick="goUp()">.</div>
+</div>
+<div id="drop-overlay"><span>Drop files here</span></div>
+
+<div id="main">
+  <div id="toolbar">
+    <span class="filename" id="current-file">No file open</span>
+    <button class="btn btn-save" onclick="saveFile()">Save (Ctrl+S)</button>
+    <button class="btn btn-run" onclick="runCurrent()">Run (Ctrl+Enter)</button>
+  </div>
+  <div id="editor-wrap"><textarea id="code"></textarea></div>
+  <div id="resize-handle"></div>
+  <div id="terminal">
+    <div id="terminal-header">
+      <span>Terminal</span>
+      <span style="cursor:pointer" onclick="clearTerminal()">Clear</span>
+    </div>
+    <div id="terminal-output"></div>
+    <div id="terminal-input-wrap">
+      <span>$</span>
+      <input id="terminal-input" placeholder="command..." onkeydown="handleTermKey(event)">
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/rust/rust.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/shell/shell.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/toml/toml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script>
+const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
+  theme: 'dracula',
+  lineNumbers: true,
+  indentUnit: 4,
+  tabSize: 4,
+  indentWithTabs: false,
+  extraKeys: {
+    'Ctrl-S': () => saveFile(),
+    'Ctrl-Enter': () => runCurrent(),
+    'Tab': (cm) => cm.execCommand('indentMore'),
+  }
+});
+
+let currentPath = '.';
+let currentFile = null;
+let modified = false;
+
+editor.on('change', () => {
+  if (currentFile && !modified) {
+    modified = true;
+    document.getElementById('current-file').classList.add('modified');
+  }
+});
+
+const MODE_MAP = {
+  py: 'python', js: 'javascript', rs: 'rust', sh: 'shell',
+  toml: 'toml', yaml: 'yaml', yml: 'yaml', md: 'markdown',
+  html: 'htmlmixed', css: 'css', xml: 'xml', json: 'javascript',
+};
+
+function getMode(filename) {
+  const ext = filename.split('.').pop();
+  return MODE_MAP[ext] || 'python';
+}
+
+async function loadFiles(path) {
+  currentPath = path;
+  document.getElementById('path-bar').textContent = path || '.';
+  const res = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
+  const files = await res.json();
+  const tree = document.getElementById('file-tree');
+  tree.innerHTML = '';
+  files.forEach(f => {
+    const el = document.createElement('div');
+    el.className = 'file-item' + (f.is_dir ? ' dir' : '');
+    el.innerHTML = `<span class="icon">${f.is_dir ? '\uD83D\uDCC1' : '\uD83D\uDCC4'}</span>${f.name}`;
+    el.onclick = () => {
+      if (f.is_dir) {
+        loadFiles(currentPath === '.' ? f.name : currentPath + '/' + f.name);
+      } else {
+        openFile(currentPath === '.' ? f.name : currentPath + '/' + f.name);
+      }
+    };
+    tree.appendChild(el);
+  });
+}
+
+function goUp() {
+  if (currentPath === '.' || currentPath === '') return;
+  const parts = currentPath.split('/');
+  parts.pop();
+  loadFiles(parts.length ? parts.join('/') : '.');
+}
+
+async function openFile(path) {
+  const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+  const data = await res.json();
+  if (data.error) { termLog(data.error, 'stderr'); return; }
+  currentFile = path;
+  modified = false;
+  const el = document.getElementById('current-file');
+  el.textContent = path;
+  el.classList.remove('modified');
+  editor.setValue(data.content);
+  editor.setOption('mode', getMode(path));
+  document.querySelectorAll('.file-item').forEach(item => {
+    item.classList.toggle('active', item.textContent.trim().endsWith(path.split('/').pop()));
+  });
+}
+
+async function saveFile() {
+  if (!currentFile) return;
+  const res = await fetch('/api/file', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ path: currentFile, content: editor.getValue() })
+  });
+  const data = await res.json();
+  if (data.status === 'saved') {
+    modified = false;
+    document.getElementById('current-file').classList.remove('modified');
+    termLog(`Saved: ${currentFile}`, 'info');
+  } else {
+    termLog(`Error: ${data.error}`, 'stderr');
+  }
+}
+
+async function runCurrent() {
+  if (!currentFile) return;
+  await saveFile();
+  const ext = currentFile.split('.').pop();
+  let cmd = '';
+  if (ext === 'py') cmd = `uv run python ${currentFile}`;
+  else if (ext === 'rs') cmd = `rustc ${currentFile} -o /tmp/out && /tmp/out`;
+  else if (ext === 'sh') cmd = `bash ${currentFile}`;
+  else if (ext === 'js') cmd = `node ${currentFile}`;
+  else cmd = `cat ${currentFile}`;
+  runCmd(cmd);
+}
+
+async function runCmd(cmd) {
+  if (!cmd.trim()) return;
+  document.getElementById('terminal-input').value = '';
+  if (cmd.trim() === 'clear') { clearTerminal(); return; }
+  termLog(`$ ${cmd}`, 'cmd');
+  const res = await fetch('/api/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ command: cmd })
+  });
+  const data = await res.json();
+  if (data.stdout) termLog(data.stdout, 'stdout');
+  if (data.stderr) termLog(data.stderr, 'stderr');
+  if (data.exit_code !== 0) termLog(`Exit code: ${data.exit_code}`, 'stderr');
+}
+
+function termLog(text, type) {
+  const out = document.getElementById('terminal-output');
+  const span = document.createElement('span');
+  span.className = `out-${type}`;
+  span.textContent = text + '\n';
+  out.appendChild(span);
+  out.scrollTop = out.scrollHeight;
+}
+
+function clearTerminal() {
+  document.getElementById('terminal-output').innerHTML = '';
+}
+
+// Resize terminal
+const handle = document.getElementById('resize-handle');
+let resizing = false;
+handle.addEventListener('mousedown', () => resizing = true);
+document.addEventListener('mousemove', (e) => {
+  if (!resizing) return;
+  const terminal = document.getElementById('terminal');
+  const mainRect = document.getElementById('main').getBoundingClientRect();
+  const newHeight = mainRect.bottom - e.clientY;
+  if (newHeight > 80 && newHeight < 500) terminal.style.height = newHeight + 'px';
+});
+document.addEventListener('mouseup', () => { resizing = false; });
+
+// Command history
+const cmdHistory = [];
+let historyIndex = -1;
+
+function handleTermKey(e) {
+  const input = document.getElementById('terminal-input');
+  if (e.key === 'Enter') {
+    const cmd = input.value;
+    if (cmd.trim()) {
+      cmdHistory.push(cmd);
+      historyIndex = cmdHistory.length;
+    }
+    runCmd(cmd);
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    tabComplete(input);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (historyIndex > 0) {
+      historyIndex--;
+      input.value = cmdHistory[historyIndex];
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (historyIndex < cmdHistory.length - 1) {
+      historyIndex++;
+      input.value = cmdHistory[historyIndex];
+    } else {
+      historyIndex = cmdHistory.length;
+      input.value = '';
+    }
+  }
+}
+
+// Tab completion
+async function tabComplete(input) {
+  const val = input.value;
+  const parts = val.split(/\s+/);
+  const partial = parts[parts.length - 1];
+  if (!partial) return;
+  const res = await fetch('/api/complete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ partial })
+  });
+  const suggestions = await res.json();
+  if (suggestions.length === 1) {
+    parts[parts.length - 1] = suggestions[0];
+    input.value = parts.join(' ');
+  } else if (suggestions.length > 1) {
+    termLog(suggestions.join('  '), 'info');
+    // find common prefix
+    let common = suggestions[0];
+    for (const s of suggestions) {
+      while (!s.startsWith(common)) common = common.slice(0, -1);
+    }
+    if (common.length > partial.length) {
+      parts[parts.length - 1] = common;
+      input.value = parts.join(' ');
+    }
+  }
+}
+
+// Upload files
+async function uploadFiles(files) {
+  for (const file of files) {
+    const targetPath = currentPath === '.' ? file.name : currentPath + '/' + file.name;
+    const data = await file.arrayBuffer();
+    const res = await fetch(`/api/upload?path=${encodeURIComponent(targetPath)}`, {
+      method: 'POST',
+      body: data
+    });
+    const result = await res.json();
+    if (result.status === 'uploaded') {
+      termLog(`Uploaded: ${targetPath}`, 'info');
+    } else {
+      termLog(`Upload error: ${result.error}`, 'stderr');
+    }
+  }
+  document.getElementById('file-input').value = '';
+  loadFiles(currentPath);
+}
+
+// Download current file
+function downloadCurrent() {
+  if (!currentFile) { termLog('No file selected to download', 'stderr'); return; }
+  const a = document.createElement('a');
+  a.href = `/api/download?path=${encodeURIComponent(currentFile)}`;
+  a.download = currentFile.split('/').pop();
+  a.click();
+  termLog(`Downloading: ${currentFile}`, 'info');
+}
+
+// Drag and drop
+const overlay = document.getElementById('drop-overlay');
+let dragCounter = 0;
+document.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; overlay.classList.add('active'); });
+document.addEventListener('dragleave', (e) => { e.preventDefault(); dragCounter--; if (dragCounter === 0) overlay.classList.remove('active'); });
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  overlay.classList.remove('active');
+  if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+});
+
+// Init
+loadFiles('.');
+</script>
+</body>
+</html>
