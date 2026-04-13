@@ -1,4 +1,4 @@
-# Pi Editor
+# Zero Editor
 
 A lightweight, web-based code editor built with Rust for resource-constrained devices like the Raspberry Pi Zero.
 
@@ -28,14 +28,14 @@ VS Code Remote SSH is too heavy for a Pi Zero (416 MB RAM). JupyterLab is too he
 
 ```bash
 # Clone
-git clone https://github.com/omrylcn/pi-editor.git
-cd pi-editor
+git clone https://github.com/omrylcn/zero-editor.git
+cd zero-editor
 
 # Build
 cargo build --release
 
 # Run (edit WORKSPACE path in src/main.rs first)
-./target/release/pi-editor
+./target/release/zero-editor
 ```
 
 Open `http://localhost:3000` in your browser.
@@ -47,11 +47,11 @@ Open `http://localhost:3000` in your browser.
 cross build --release --target aarch64-unknown-linux-gnu
 
 # Copy binary to Pi
-scp target/aarch64-unknown-linux-gnu/release/pi-editor user@pi-address:~/
+scp target/aarch64-unknown-linux-gnu/release/zero-editor user@pi-address:~/
 
 # SSH and run
 ssh user@pi-address
-./pi-editor
+./zero-editor
 ```
 
 Then access from your desktop browser: `http://<pi-ip>:3000`
